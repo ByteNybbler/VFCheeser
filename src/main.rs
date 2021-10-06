@@ -9,7 +9,9 @@ use url::form_urlencoded::byte_serialize;
 use std::fs::File;
 use std::io::prelude::*;
 
-mod text_command;
+pub mod macro_assist;
+pub mod parse;
+pub mod text_command;
 use crate::text_command::*;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,26 +27,93 @@ struct AudioParameters {
     pitch: i32
 }
 
+struct VoiceforgeCheeser {
+    audio_parameters: AudioParameters,
+    running: bool
+}
+
+impl VoiceforgeCheeser {
+    pub fn new() -> VoiceforgeCheeser {
+        VoiceforgeCheeser {
+            audio_parameters: AudioParameters {
+                voice: query_string_encode("Dallas"),
+                voice_text: query_string_encode("I'm liking video games."),
+                rate: 170,
+                pitch: 1
+            },
+            running: true
+        }
+    }
+
+    text_commands! {
+        fn exit(&mut self) {
+            self.running = !self.running;
+        }
+
+        #[alias(p)]
+        fn pitch(&mut self, new_pitch: i32) {
+            self.audio_parameters.pitch = new_pitch;
+            notify_value_change("pitch", self.audio_parameters.pitch);
+        }
+
+        #[alias(r)]
+        fn rate(&mut self, new_rate: i32) {
+            self.audio_parameters.rate = new_rate;
+            notify_value_change("rate", self.audio_parameters.rate);
+        }
+
+        #[alias(v)]
+        fn voice(&mut self, new_voice: &str) {
+            self.audio_parameters.voice = query_string_encode(new_voice);
+            notify_value_change("voice", new_voice);
+        }
+    }
+}
+
+fn notify_value_change<T>(name: &str, value: T)
+where
+    T: std::fmt::Display
+{
+    println!("{} set to {}", name, value);
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut audio_parameters = AudioParameters {
-        voice: query_string_encode("Dallas"),
-        voice_text: query_string_encode("I'm liking video games."),
-        rate: 170,
-        pitch: 1
-    };
+    let mut cheeser = VoiceforgeCheeser::new();
 
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
 
     let stdin = std::io::stdin();
 
-    let cookies = get_session_cookies(&client).await?;
+    //let message = "You are the worst of the best.";
+    //let message = "/rate 5";
+    //let message = "/rate";
+    let message = "/r 5";
+    //let message = "/voice Alice";
 
-    let mp3_bytes = get_mp3(&client, &audio_parameters, &cookies).await?;
+    if let Some(command) = TextCommand::from_str(message, '/') {
+        match cheeser.run_command(&command) {
+            Ok(()) => (),
+            Err(e) => {
+                println!("{} error: {}", command.name(), e);
+                if e.is_usage_error() {
+                    VoiceforgeCheeser::help(Some(command.name()));
+                }
+            }
+        }
+    } else {
+        cheeser.audio_parameters.voice_text = query_string_encode(&message);
 
-    let mut file = File::create("test.mp3")?;
-    file.write_all(&mp3_bytes)?;
+        let cookies = get_session_cookies(&client).await?;
+
+        println!("{}", cheeser.audio_parameters.pitch);
+
+        let mp3_bytes = get_mp3(&client, &cheeser.audio_parameters, &cookies).await?;
+    
+        let mut file = File::create("test.mp3")?;
+        file.write_all(&mp3_bytes)?; 
+    }
 
     Ok(())
 }
