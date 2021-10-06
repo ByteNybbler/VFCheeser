@@ -6,7 +6,6 @@ macro_rules! text_commands {
     )*) => {
         text_commands_generate_run_function!($($func [$($($alias)*)*])*);
         text_commands_generate_help_function!($($func [$($($alias)*)*])*);
-        //text_commands_generate_help_function!($($func)*);
         $(
             $v fn $func(&mut $self $(, $i: $t)*) $b
             text_commands_generate_per_command_functions!($func [$($($alias)*)*], $($i: $t),*);
